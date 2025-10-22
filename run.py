@@ -18,7 +18,7 @@ from datetime import date
 random.seed(datetime.now())
 MAX_RAND_RANGE = 1000000000
 
-# config template
+# config template   日志输出格式定义在mix/output/{id}/目录下
 config_template = """TOPOLOGY_FILE config/{topo}.txt
 FLOW_FILE config/{flow}.txt
 
@@ -376,7 +376,7 @@ def main():
     with open(config_name, "w") as file:
         file.write(config)
 
-    # run program
+    # run program   运行仿真
     print("Running simulation...")
     output_log = config_name.replace(".txt", ".log")
     run_command = "./waf --run 'scratch/network-load-balance {config_name}' > {output_log} 2>&1".format(

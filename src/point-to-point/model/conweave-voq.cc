@@ -34,7 +34,7 @@ namespace ns3 {
 ConWeaveVOQ::ConWeaveVOQ() {}
 ConWeaveVOQ::~ConWeaveVOQ() {}
 
-std::vector<int> ConWeaveVOQ::m_flushEstErrorhistory; // instantiate static variable
+std::vector<int> ConWeaveVOQ::m_flushEstErrorhistory; // instantiate static variable  设置VOQ的属性，包括流密钥（flowkey）、目的IP（dip）、刷新时间（timeToFlush）和额外的VOQ刷新时间（extraVOQFlushTime）。调用RescheduleFlush来安排刷新事件
 
 void ConWeaveVOQ::Set(uint64_t flowkey, uint32_t dip, Time timeToFlush, Time extraVOQFlushTime) {
     m_flowkey = flowkey;
@@ -43,8 +43,10 @@ void ConWeaveVOQ::Set(uint64_t flowkey, uint32_t dip, Time timeToFlush, Time ext
     RescheduleFlush(timeToFlush);
 }
 
-void ConWeaveVOQ::Enqueue(Ptr<Packet> pkt) { m_FIFO.push(pkt); }
+void ConWeaveVOQ::Enqueue(Ptr<Packet> pkt) { m_FIFO.push(pkt); }   //将数据包存入 FIFO 队列
 
+
+// 立即清空队列并发送所有数据包
 void ConWeaveVOQ::FlushAllImmediately() {
     m_CallbackByVOQFlush(
         m_flowkey,
@@ -60,6 +62,8 @@ void ConWeaveVOQ::FlushAllImmediately() {
     m_deleteCallback(m_flowkey);  // delete this from SlbRouting::m_voqMap
 }
 
+
+// 通过超时强制刷新VOQ。记录日志，增加统计计数（ConWeaveRouting::m_nFlushVOQTotal），取消下一次的刷新事件，然后立即刷新。
 void ConWeaveVOQ::EnforceFlushAll() {
     SLB_LOG(
         "--> *** Finish this epoch by Timeout Enforcement - ConWeaveVOQ Size:" << m_FIFO.size());
@@ -86,7 +90,7 @@ void ConWeaveVOQ::RescheduleFlush(Time timeToFlush) {
 
         m_checkFlushEvent.Cancel();
     }
-    m_checkFlushEvent = Simulator::Schedule(timeToFlush, &ConWeaveVOQ::EnforceFlushAll, this);
+    m_checkFlushEvent = Simulator::Schedule(timeToFlush, &ConWeaveVOQ::EnforceFlushAll, this);   // 重新安排一个在timeToFlush时间后调用EnforceFlushAll的事件
 }
 
 bool ConWeaveVOQ::CheckEmpty() { return m_FIFO.empty(); }

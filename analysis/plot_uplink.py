@@ -220,12 +220,24 @@ def main():
                         history_data = {}
                         diff_data = {}
                         last_ts = 0
-                        for line in f.readlines():
+                        for line_no, line in enumerate(f.readlines(), start=1):
+                            # basic validation: skip empty lines or lines that don't have enough comma-separated fields
+                            if not line or line.strip() == "":
+                                # skip blank lines
+                                continue
                             parsed_line = line.replace("\n", "").split(",")
-                            now_ts = int(parsed_line[0])
-                            now_swid = int(parsed_line[1])
-                            now_portid = int(parsed_line[2])
-                            now_val = int(parsed_line[3])
+                            if len(parsed_line) < 4:
+                                # log a warning and skip malformed line
+                                sys.stderr.write("Warning: malformed line in {} at {}: '{}'\n".format(filename_uplink, line_no, line.strip()))
+                                continue
+                            try:
+                                now_ts = int(parsed_line[0])
+                                now_swid = int(parsed_line[1])
+                                now_portid = int(parsed_line[2])
+                                now_val = int(parsed_line[3])
+                            except ValueError:
+                                sys.stderr.write("Warning: non-integer value in {} at {}: '{}'\n".format(filename_uplink, line_no, line.strip()))
+                                continue
                             
                             if now_ts < time_start or now_ts > time_end:
                                 continue

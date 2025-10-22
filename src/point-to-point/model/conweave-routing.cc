@@ -44,7 +44,7 @@
 namespace ns3 {
 
 /**
- * @brief tag for DATA header
+ * @brief tag for DATA header      字段：pathId (u32), hopCount (u32), epoch (u32), phase (u32), timestampTx (u64), timestampTail (u64), flagData (u32)
  */
 ConWeaveDataTag::ConWeaveDataTag() : Tag() {}
 TypeId ConWeaveDataTag::GetTypeId(void) {
@@ -64,7 +64,7 @@ void ConWeaveDataTag::SetTimestampTx(uint64_t timestamp) { m_timestampTx = times
 uint64_t ConWeaveDataTag::GetTimestampTx(void) const { return m_timestampTx; }
 void ConWeaveDataTag::SetTimestampTail(uint64_t timestamp) { m_timestampTail = timestamp; }
 uint64_t ConWeaveDataTag::GetTimestampTail(void) const { return m_timestampTail; }
-void ConWeaveDataTag::SetFlagData(uint32_t flag) { m_flagData = flag; }
+void ConWeaveDataTag::SetFlagData(uint32_t flag) { m_flagData = flag; }    //flagData 用于标识 INIT / TAIL / DATA（INIT 请求回复、TAIL 请求回复 或 普通数据）
 uint32_t ConWeaveDataTag::GetFlagData(void) const { return m_flagData; }
 
 TypeId ConWeaveDataTag::GetInstanceTypeId(void) const { return GetTypeId(); }
@@ -101,7 +101,7 @@ void ConWeaveDataTag::Print(std::ostream &os) const {
 }
 
 /**
- * @brief tag for reply/notify packet
+ * @brief tag for reply/notify packet      用于 ToR 间 ACK-like 报文携带回复信息（INIT 或 TAIL）的标识
  */
 ConWeaveReplyTag::ConWeaveReplyTag() : Tag() {}
 TypeId ConWeaveReplyTag::GetTypeId(void) {
@@ -136,7 +136,7 @@ void ConWeaveReplyTag::Print(std::ostream &os) const {
 }
 
 /**
- * @brief tag for notify packet
+ * @brief tag for notify packet      用于在 RxToR 发现 ECN（拥塞）时通知发端 ToR 不要使用某条 path
  */
 ConWeaveNotifyTag::ConWeaveNotifyTag() : Tag() {}
 TypeId ConWeaveNotifyTag::GetTypeId(void) {
@@ -384,7 +384,9 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
         return;
     }
     assert(srcToRId != dstToRId);  // Should not be in the same pod
+    
 
+    // 只处理 UDP (0x11) 或 ConWeave 控制协议 0xFD；其他协议做普通 flow‑ECMP 转发。
     if (ch.l3Prot != 0x11 && ch.l3Prot != 0xFD) {
         SLB_LOG(PARSE_FIVE_TUPLE(ch) << "ACK/PFC or other control pkts -> do flow-ECMP. Sw("
                                      << m_switch_id << "),l3Prot:" << ch.l3Prot);
@@ -529,7 +531,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                             rand() % pathSet.size()));  // to initialize (empty: CW_DEFAULT_32BIT)
 
             if (m_pathAwareRerouting) {
-                /* path-aware decision */
+                /* path-aware decision */   //若 m_pathAwareRerouting 启用，则检查 m_conweavePathTable（哈希索引）以避开 invalidTime 未过期的 path（ECN 标记）
                 uint32_t randPath1 = *(std::next(pathSet.begin(), rand() % pathSet.size()));
                 uint32_t randPath2 = *(std::next(pathSet.begin(), rand() % pathSet.size()));
                 const auto pathEntry1 =
@@ -664,7 +666,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 rxEntry._activeTime = now;
 
                 /**
-                 * PARSING: parse packet's conweaveDataTag
+                 * PARSING: parse packet's conweaveDataTag    解析 ConWeaveDataTag 并用/更新 m_conweaveRxTable[flowkey]。
                  */
                 rx_md.pkt_pathId = conweaveDataTag.GetPathId();
                 rx_md.pkt_epoch = conweaveDataTag.GetEpoch();
@@ -697,7 +699,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 /**
                  * PHASE: Phase0-Timestamp, Phase, Phase0-Cache
                  */
-                if (rx_md.pkt_phase == 0) { /* update phase0 timestamp */
+                if (rx_md.pkt_phase == 0) { /* update phase0 timestamp */   //记录 phase0TxTime/phase0RxTime（用于估计 tail 到达时间）
                     rxEntry._phase0TxTime = NanoSeconds(rx_md.pkt_timestamp_Tx);
                     rxEntry._phase0RxTime = now;
                 }
@@ -705,8 +707,8 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 rx_md.phase0RxTime = rxEntry._phase0RxTime; /* get RxTime of phase 0 */
 
                 if (rx_md.resultEpochMatch == 1) { /* new epoch */
-                    // TAIL -> set phase=1. Otherwise, set phase 0.
-                    rxEntry._phase = (rx_md.pkt_flagData == ConWeaveDataTag::TAIL) ? 1 : 0;
+                    // TAIL -> set phase=1. Otherwise, set phase 0.   根据 pkt_flagData（INIT/TAIL/DATA）与 phase 判断是否产生 out‑of‑order，并计算 timeExpectedToFlush。
+                    rxEntry._phase = (rx_md.pkt_flagData == ConWeaveDataTag::TAIL) ? 1 : 0; 
                     if (rx_md.pkt_phase > rxEntry._phase) { /* check out-of-order */
                         rx_md.flagOutOfOrder = true;
                     }
@@ -863,7 +865,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                                 << ",Phase0 Rx:" << rx_md.phase0RxTime << ")");
                     }
                 } else {                          /* phase 1 */
-                    if (rx_md.flagOutOfOrder) {   /* out-of-order */
+                    if (rx_md.flagOutOfOrder) {   /* out-of-order */  //若 out‑of‑order -> 创建或更新 ConWeaveVOQ（存在于 m_voqMap 中）并将包 enqueue；VOQ 在到期或由 TAIL 触发时 flush，并通过 CallbackByVOQFlush 回调更新 rxEntry 状态。
                         rx_md.flagEnqueue = true; /* enqueue */
 
                         if (rxEntry._reordering) { /* reordering is on-going */
@@ -904,7 +906,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 }
 
                 /**
-                 * NOTIFY: Generate NOTIFY packet if ECN marked
+                 * NOTIFY: Generate NOTIFY packet if ECN marked  若 ECN bits == 0x03 -> SendNotify(p,ch,pathId) 给 SrcToR（用于 path pause）
                  */
                 if (m_pathAwareRerouting) {
                     if (rx_md.pkt_ecnbits == 0x03) {
@@ -913,7 +915,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 }
 
                 /**
-                 * REPLY: send reply if requested
+                 * REPLY: send reply if requested  若 pkt_flagData==INIT/TAIL -> 发 SendReply 给 SrcToR
                  */
                 if (rx_md.pkt_flagData == ConWeaveDataTag::INIT) {
                     assert(rx_md.pkt_phase == 0);  // sanity check
@@ -1031,7 +1033,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
     /******************************
      *  Non-ToR Switch (Core/Agg) *
      ******************************/
-    if (foundConWeaveDataTag) {  // UDP with PathId
+    if (foundConWeaveDataTag) {  // UDP with PathId   如果包有 ConWeaveDataTag：增加 hopCount，重新序列化 tag，用 path 指定的 outDev（通过 GetOutPortFromPath）转发（DoSwitchSend）。
         // update hopCount
         uint32_t hopCount = conweaveDataTag.GetHopCount() + 1;
         conweaveDataTag.SetHopCount(hopCount);
