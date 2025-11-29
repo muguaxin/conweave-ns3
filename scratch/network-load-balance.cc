@@ -137,7 +137,7 @@ unordered_map<uint64_t, uint32_t> rate2kmax, rate2kmin;
 unordered_map<uint64_t, double> rate2pmax;
 unordered_map<uint32_t, Ptr<SwitchNode>> idxNodeToR;  // Id -> Ptr
 
-// config of link-down scenario, ACK priority, and buffer
+// config of link-down scenario, ACK priority, and buffer                  模拟链路故障参数设置
 uint64_t link_down_time = 0;
 uint32_t link_down_A = 0, link_down_B = 0;
 uint32_t buffer_size = 0;  // 0 to set buffer size automatically
@@ -158,7 +158,7 @@ struct Interface {
 
     Interface() : idx(0), up(false) {}
 };
-map<Ptr<Node>, map<Ptr<Node>, Interface>> nbr2if;           //网络拓扑映射
+map<Ptr<Node>, map<Ptr<Node>, Interface>> nbr2if;            //网络拓扑映射
 // Mapping destination to next hop for each node: <node, <dest, <nexthop0, ...> > >
 map<Ptr<Node>, map<Ptr<Node>, vector<Ptr<Node>>>> nextHop;   //对每个节点、每个目的地保存可能的前跳（用于构建路径）。
 map<Ptr<Node>, map<Ptr<Node>, uint64_t>> pairDelay;          
@@ -330,7 +330,7 @@ void periodic_monitoring(FILE *fout_voq, FILE *fout_voq_detail, FILE *fout_uplin
         auto swNode = DynamicCast<SwitchNode>(node);
         assert(swNode->m_isToR == true);  // sanity check
 
-        if (lb_mode_val == 9) {  // Conweave   ConWeave 特有：VOQ 数量与按目的地 VOQ 统计（写入 voq 文件和 voq_detail）。
+        if (lb_mode_val == 9) {  // Conweave                                            ConWeave 特有：VOQ 数量与按目的地 VOQ 统计（写入 voq 文件和 voq_detail）。
             // monitor VOQ number per switch <time, ToRId, #VOQ, #Pkts>
             uint32_t nVOQ = swNode->m_mmu->m_conweaveRouting.GetNumVOQ();
             uint32_t nVolumeVOQ = swNode->m_mmu->m_conweaveRouting.GetVolumeVOQ();
@@ -349,7 +349,7 @@ void periodic_monitoring(FILE *fout_voq, FILE *fout_voq_detail, FILE *fout_uplin
             }
         }
 
-        // common: monitor TOR's uplink to measure load balancing performance  每个 ToR 的 uplink txBytes（写入 uplink 文件）。
+        // common: monitor TOR's uplink to measure load balancing performance     每个 ToR 的上级接口tor2if.second txBytes（写入 uplink 文件）。
         for (const auto &iface : tor2If.second) {
             // monitor uplink txBytes <time, ToRId, OutDev, Bytes>
             uint64_t uplink_txbyte = swNode->GetTxBytesOutDev(iface);
@@ -466,9 +466,9 @@ void conweave_history_print() {
 }
 
 /**
- * @brief When one RDMA is finished, so does (1) QP, (2) RxQP, (3) write it on file fct.txt. 该函数用于 FCT 统计与追踪。
+ * @brief When one RDMA is finished, so does (1) QP, (2) RxQP, (3) write it on file fct.txt. 通过QP完成事件来用于 FCT 统计与追踪。
  */
-void qp_finish(FILE *fout, Ptr<RdmaQueuePair> q) {
+void qp_finish(FILE *fout, Ptr< RdmaQueuePair> q) {
     uint32_t sid = Settings::ip_to_node_id(q->sip), did = Settings::ip_to_node_id(q->dip);
     uint64_t base_rtt = pairRtt[n.Get(sid)][n.Get(did)];
     uint64_t b = pairBw[n.Get(sid)][n.Get(did)];
@@ -685,8 +685,8 @@ void SetRoutingEntries() {
 void TakeDownLink(NodeContainer n, Ptr<Node> a, Ptr<Node> b) {
     if (!nbr2if[a][b].up) return;
     // take down link between a and b
-    nbr2if[a][b].up = nbr2if[b][a].up = false;   //将两节点间的链接标记为 down（nbr2if[a][b].up=false）
-    nextHop.clear();                             //重算路由（nextHop.clear(); CalculateRoutes(n)）
+    nbr2if[a][b].up = nbr2if[b][a].up = false;                                       //将两节点间的链接标记为 down（nbr2if[a][b].up=false）
+    nextHop.clear();                                                                 //重算路由（nextHop.clear(); CalculateRoutes(n)）
     CalculateRoutes(n);
     // clear routing tables
     for (uint32_t i = 0; i < n.GetN(); i++) {
@@ -697,7 +697,7 @@ void TakeDownLink(NodeContainer n, Ptr<Node> a, Ptr<Node> b) {
     }
     DynamicCast<QbbNetDevice>(a->GetDevice(nbr2if[a][b].idx))->TakeDown();
     DynamicCast<QbbNetDevice>(b->GetDevice(nbr2if[b][a].idx))->TakeDown();
-    // reset routing table     重新 SetRoutingEntries() 并对所有 host 的 RdmaDriver 调用 RedistributeQp()（QP 重新路由/重分布）。
+    // reset routing table                                                         重新 SetRoutingEntries() 并对所有 host 的 RdmaDriver 调用 RedistributeQp()（QP 重新路由/重分布）。
     SetRoutingEntries();
 
     // redistribute qp on each host
@@ -1159,7 +1159,14 @@ int main(int argc, char *argv[]) {
     Settings::packet_payload = packet_payload_size;
     // Settings::MTU = packet_payload_size + 48;  // for simplicity
     /*------------------------------------*/
+    
 
+
+
+
+    /**
+     * @brief 前面为读取文件和初始化配置，从这里开始创建服务器节点和交换机节点
+     */
     std::vector<uint32_t> node_type(node_num, 0);    //创建节点容器：按 topology 中标记的 switch id 创建 SwitchNode（并设置 EcnEnabled），其他创建普通 Node（server）
     for (uint32_t i = 0; i < switch_num; i++) {
         uint32_t sid;
@@ -1168,7 +1175,7 @@ int main(int argc, char *argv[]) {
     }
     for (uint32_t i = 0; i < node_num; i++) {
         if (node_type[i] == 0)
-            n.Add(CreateObject<Node>());
+            n.Add(CreateObject<Node>());      //这里的n为nodecontainer在文件开头定义
         else {
             Ptr<SwitchNode> sw = CreateObject<SwitchNode>();
             n.Add(sw);
@@ -1180,7 +1187,7 @@ int main(int argc, char *argv[]) {
     /*----------------------------------------*/
 
     InternetStackHelper internet;
-    internet.Install(n);  // aggregate ipv4, ipv6, udp, tcp, etc  安装 InternetStackHelper 到所有节点（聚合 IPv4/IPv6/TCP/UDP 支持）
+    internet.Install(n);  // aggregate ipv4, ipv6, udp, tcp, etc  提供网络协议栈支持
 
     //
     // Assign IP to each server
@@ -1188,7 +1195,7 @@ int main(int argc, char *argv[]) {
     for (uint32_t i = 0; i < node_num; i++) {
         if (n.Get(i)->GetNodeType() == 0) {  // is server
             serverAddress.resize(i + 1);
-            serverAddress[i] = Settings::node_id_to_ip(i);
+            serverAddress[i] = Settings::node_id_to_ip(i);                            //serverAddress 存储每个 server 的 IP 地址,在开头定义
         }
     }
 
@@ -1207,7 +1214,7 @@ int main(int argc, char *argv[]) {
     pfc_file = fopen(pfc_output_file.c_str(), "w");
 
 
-    // 使用 QbbHelper 安装点到点设备（返回 NetDeviceContainer d）。如果一端为 host，则手动把接口设为第一个 interface 并把 IP 写入 Ipv4 的地址表（保持 primary IP）
+      // 使用 QbbHelper 安装点到点设备（返回 NetDeviceContainer d），qbbnetdevice和qbbchannel
     QbbHelper qbb;
     Ipv4AddressHelper ipv4;
     std::vector<std::pair<uint32_t, uint32_t>> link_pairs;  // src, dst link pairs
@@ -1221,8 +1228,8 @@ int main(int argc, char *argv[]) {
         assert(std::to_string(one_hop_delay) + "ns" == link_delay);
 
         link_pairs.push_back(std::make_pair(src, dst));
-        Ptr<Node> snode = n.Get(src), dnode = n.Get(dst);
-
+        Ptr<Node> snode = n.Get(src), dnode = n.Get(dst);   
+                                                           
         qbb.SetDeviceAttribute("DataRate", StringValue(data_rate));
         qbb.SetChannelAttribute("Delay", StringValue(link_delay));
 
@@ -1243,8 +1250,8 @@ int main(int argc, char *argv[]) {
         // Assigne server IP
         // Note: this should be before the automatic assignment below (ipv4.Assign(d)),
         // because we want our IP to be the primary IP (first in the IP address list),
-        // so that the global routing is based on our IP
-        NetDeviceContainer d = qbb.Install(snode, dnode);
+        // so that the global routing is based on our IP                               手动为 server 分配 IP 地址
+        NetDeviceContainer d = qbb.Install(snode, dnode);                             //snode 和 dnode 在上面不远ptr<node>那行有定义
         if (snode->GetNodeType() == 0) {
             Ptr<Ipv4> ipv4 = snode->GetObject<Ipv4>();
             ipv4->AddInterface(d.Get(0));
@@ -1256,7 +1263,7 @@ int main(int argc, char *argv[]) {
             ipv4->AddAddress(1, Ipv4InterfaceAddress(serverAddress[dst], Ipv4Mask(0xff000000)));
         }
 
-        // used to create a graph of the topology
+        // used to create a graph of the topology                                      构建网络拓扑映射（记录邻居节点、接口索引、延迟、带宽、状态）
         nbr2if[snode][dnode].idx = DynamicCast<QbbNetDevice>(d.Get(0))->GetIfIndex();
         nbr2if[snode][dnode].up = true;
         nbr2if[snode][dnode].delay =
@@ -1279,7 +1286,7 @@ int main(int argc, char *argv[]) {
         ipv4.SetBase(ipstring, "255.255.255.0");
         ipv4.Assign(d);
 
-        // setup PFC trace
+        // setup PFC trace                                                             为每个 QbbNetDevice 连接 PFC trace 回调函数 get_pfc()，用于记录 PFC 事件
         DynamicCast<QbbNetDevice>(d.Get(0))->TraceConnectWithoutContext(
             "QbbPfc", MakeBoundCallback(&get_pfc, pfc_file, DynamicCast<QbbNetDevice>(d.Get(0))));
         DynamicCast<QbbNetDevice>(d.Get(1))->TraceConnectWithoutContext(
@@ -1288,7 +1295,8 @@ int main(int argc, char *argv[]) {
 
     std::cout << "(AVG) NIC RATE: " << get_nic_rate(n) << std::endl;
 
-    /* Get IP address <-> NodeID pairs */
+    /* Get IP address <-> NodeID pairs */     
+    // 建立节点id到ip地址的映射
     Ipv4Address empty_ip;
     for (uint32_t i = 0; i < node_num; ++i) {
         if (n.Get(i)->GetNodeType() == 0) {  // is server
@@ -1302,14 +1310,14 @@ int main(int argc, char *argv[]) {
         Settings::hostIp2IdMap[serverAddress[i].Get()] = i;
     }
 
-    // config switch
+    // config switch                                                                      配置交换机的内部缓冲区和各端口的 ECN/PFC 参数
     for (uint32_t i = 0; i < node_num; i++) {
         if (n.Get(i)->GetNodeType() == 1) {  // is switch
-            Ptr<SwitchNode> sw = DynamicCast<SwitchNode>(n.Get(i));
+            Ptr<SwitchNode> sw = DynamicCast<SwitchNode>(n.Get(i));                       //sw为 SwitchNode 智能指针
             uint32_t shift = 3;  // by default 1/8
             for (uint32_t j = 1; j < sw->GetNDevices(); j++) {
                 Ptr<QbbNetDevice> dev = DynamicCast<QbbNetDevice>(sw->GetDevice(j));
-                // set ecn
+                // set ecn                                                               设置 ECN 参数configEcn，使用rate2kmin、rate2kmax、rate2pmax三个映射表
                 uint64_t rate = dev->GetDataRate().GetBitRate();
                 NS_ASSERT_MSG(rate2kmin.find(rate) != rate2kmin.end(),
                               "must set kmin for each link speed");
@@ -1327,10 +1335,10 @@ int main(int argc, char *argv[]) {
                 uint32_t headroom = rate * delay / 8 / 1000000000 * 2 + 2 * sw->m_mmu->MTU;
                 sw->m_mmu->ConfigHdrm(j, headroom);
             }
-            sw->m_mmu->ConfigNPort(sw->GetNDevices() - 1);
+            sw->m_mmu->ConfigNPort(sw->GetNDevices() - 1);                         //配置端口数量
             sw->m_mmu->ConfigBufferSize(buffer_size * 1024 *
-                                        1024);  // default 0, specify in run.py!!
-            sw->m_mmu->node_id = sw->GetId();
+                                        1024);  // default 0, specify in run.py!!  配置交换机总缓冲区大小
+            sw->m_mmu->node_id = sw->GetId();                                      //记录交换机节点 id
             NS_LOG_INFO("Node %u : Broadcom switch (%u ports / %gMB MMU)\n" %
                         (i, sw->GetNDevices() - 1, sw->m_mmu->GetMmuBufferBytes() / 1000000.));
         }
@@ -1392,10 +1400,10 @@ int main(int argc, char *argv[]) {
         assert(false);
     }
 
-    // rdmaHw config    为每个 server 安装 RdmaHw（设置多种 RDMA / congestion control / 参数），并创建 RdmaDriver 绑定到节点并 Aggregate（并在 RDMA 驱动上注册 QpComplete 回调到 qp_finish）
+    // rdmaHw config                   为每个 server 节点创建 RdmaHw 和 RdmaDriver，并将两者关联
     for (uint32_t i = 0; i < node_num; i++) {
         if (n.Get(i)->GetNodeType() == 0) {  // is server
-            // create RdmaHw
+            // create RdmaHw           创建rdmahw对象rdmahw（rdma hard ware即硬件模拟器），根据全局变量设置其属性（如ClampTargetRate，AlphaResumInterval，RPTimer）
             Ptr<RdmaHw> rdmaHw = CreateObject<RdmaHw>();
             rdmaHw->SetAttribute("ClampTargetRate", BooleanValue(clamp_target_rate));
             rdmaHw->SetAttribute("AlphaResumInterval", DoubleValue(alpha_resume_interval));
@@ -1430,16 +1438,16 @@ int main(int argc, char *argv[]) {
                                     rdmaHw);
             }
 
-            // create and install RdmaDriver
+            // create and install RdmaDriver                                                   创建rdmadriver对象rdma，将其与节点关联（SetNode，AggregateObject），并设置RDmahw
             Ptr<RdmaDriver> rdma = CreateObject<RdmaDriver>();
             Ptr<Node> node = n.Get(i);
             rdma->SetNode(node);
             rdma->SetRdmaHw(rdmaHw);
 
             node->AggregateObject(rdma);
-            rdma->Init();
+            rdma->Init();                                                                     //初始化rdmadriver（注册rdmahw，创建qp table等）
             rdma->TraceConnectWithoutContext("QpComplete",
-                                             MakeBoundCallback(qp_finish, fct_output));
+                                             MakeBoundCallback(qp_finish, fct_output));      //为rdmadriver连接qp完成回调函数qp_finish，用于记录fct
         }
     }
 
@@ -1455,10 +1463,10 @@ int main(int argc, char *argv[]) {
     }
 
     /**
-     * @brief setup routing
+     * @brief setup routing                      
      */
-    CalculateRoutes(n);
-    SetRoutingEntries();
+    CalculateRoutes(n);                            //calculateRoutes为n个服务器节点执行广度优先搜索（BFS)，计算到网络中所有其他节点（主要是交换机）的最短路径，记录路径上的延迟、传输延迟、带宽、下一跳
+    SetRoutingEntries();                           //遍历nextHop，为每个节点（交换机或者服务器的rdma驱动）配置路由表项（Routing Entries），指定到达目标IP地址的下一跳节点和接口索引
 
     /**
      * @brief get BDP and delay
@@ -1492,7 +1500,7 @@ int main(int argc, char *argv[]) {
         Ptr<Node> probably_host = n.Get(pair.first);
         Ptr<Node> probably_switch = n.Get(pair.second);
 
-        // host-switch link
+        // host-switch link                                                                              识别 ToR 交换机（链接服务器的交换机），并记录其连接的 host IP 地址
         if (probably_host->GetNodeType() == 0 && probably_switch->GetNodeType() == 1) {
             Ptr<SwitchNode> sw = DynamicCast<SwitchNode>(probably_switch);
             sw->m_isToR = true;
@@ -1505,7 +1513,6 @@ int main(int argc, char *argv[]) {
     }
 
     /* config load balancer's switches using ToR-to-ToR routing */   
-    // 为 ToR（Top-of-Rack）交换机构建“到每个目的 ToR 的候选路径集合”（path list），并把每条路径编码为一个紧凑的 pathId，插入到不同负载均衡算法使用的数据结构中（Conga / Letflow / ConWeave）。
     if (lb_mode == 3 || lb_mode == 6 || lb_mode == 9) {  // Conga, Letflow, Conweave
         NS_LOG_INFO("Configuring Load Balancer's Switches");
         for (auto &pair : link_pairs) {
@@ -1523,7 +1530,7 @@ int main(int argc, char *argv[]) {
         // Conga: m_congaFromLeafTable, m_congaToLeafTable, m_congaRoutingTable
         // Letflow: m_letflowRoutingTable
         // Conweave: m_ConWeaveRoutingTable, m_rxToRId2BaseRTT
-        for (auto i = nextHop.begin(); i != nextHop.end(); i++) {  // every node
+        for (auto i = nextHop.begin(); i != nextHop.end(); i++) {  // every node                        根据 nextHop 枚举1hop、2hop 和3hop路径，生成path id，并加入对应交换机的负载均衡路由表中
             if (i->first->GetNodeType() == 1) {                    // switch
                 Ptr<Node> nodeSrc = i->first;
                 Ptr<SwitchNode> swSrc = DynamicCast<SwitchNode>(nodeSrc);  // switch
@@ -1684,7 +1691,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Constant setup, and switchInfo
+        // Constant setup, and switchInfo                                                       设置算法常量，交换机信息
         for (auto i = nextHop.begin(); i != nextHop.end(); i++) {  // every node
             if (i->first->GetNodeType() == 1) {
                 Ptr<Node> node = i->first;
@@ -1726,7 +1733,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // populate routing tables (although we use our custom impl in switch_node.cc)
+    // populate routing tables (although we use our custom impl in switch_node.cc)                  全局路由表填充
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
     // maintain port number for each host
@@ -1736,18 +1743,18 @@ int main(int argc, char *argv[]) {
             dportNumber[i] = 100;
         }
     }
-
+   
     flow_input.idx = 0;
     port_per_host = new uint16_t[node_num - switch_num];
     if (flow_num > 0) {
-        // generate flows
+        // generate flows                                                                          流量生成器，并根据流的开始时间调度rdmaclient应用的创建，scheduleflowinputs函数（开头定义）会不断读取流输入文件，获取流的源、目的、大小、开始时间等信息，并在对应时间创建rdmaclient应用
         ReadFlowInput();
         Simulator::Schedule(Seconds(0), &ScheduleFlowInputs, flow_input_stream);
     }
 
     topof.close();
 
-    // schedule link down
+    // schedule link down                                                                          模拟链路故障，在指定时间关闭指定链路
     if (link_down_time > 0) {
         Simulator::Schedule(Seconds(flowgen_start_time) + MicroSeconds(link_down_time),
                             &TakeDownLink, n, n.Get(link_down_A), n.Get(link_down_B));
@@ -1761,7 +1768,7 @@ int main(int argc, char *argv[]) {
     uplink_output = fopen(uplink_mon_file.c_str(), "w");  // common
     conn_output = fopen(conn_mon_file.c_str(), "w");      // common
 
-    // update torId2UplinkIf, torId2DownlinkIf
+    // update torId2UplinkIf, torId2DownlinkIf                                                    为每个 ToR 交换机记录其上行链路和下行链路的接口索引
     for (size_t ToRId = 0; ToRId < Settings::node_num; ToRId++) {
         Ptr<Node> node = n.Get(ToRId);
         if (node->GetNodeType() == 1) {  // switches
@@ -1787,7 +1794,7 @@ int main(int argc, char *argv[]) {
         }
     }
     Simulator::Schedule(Seconds(flowgen_start_time), &periodic_monitoring, voq_output,
-                        voq_detail_output, uplink_output, conn_output, &lb_mode);
+                        voq_detail_output, uplink_output, conn_output, &lb_mode);                    //调度交换机监控函数periodic_monitoring，用于记录交换机的voq、上行链路利用率、连接数等信息
 
     //
     // Now, do the actual simulation.
@@ -1797,7 +1804,7 @@ int main(int argc, char *argv[]) {
     fflush(stdout);
     NS_LOG_INFO("Run Simulation.");
     Simulator::Schedule(Seconds(flowgen_start_time),
-                        &stop_simulation_middle);  // check every 100us
+                        &stop_simulation_middle);  // check every 100us                              // stop simulation middle函数用于在大部分流结束后提前终止仿真
     Simulator::Stop(Seconds(flowgen_stop_time + 10.0));
     Simulator::Run();
 

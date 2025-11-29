@@ -48,7 +48,7 @@ class SwitchNode : public Node {
                        const std::vector<int> &nexthops);     // choose egress port
     uint32_t m_drill_candidate;                               // always 2 (power of two)
     std::map<uint32_t, uint32_t> m_previousBestInterfaceMap;  // <dip, previousBestInterface>
-    uint32_t CalculateInterfaceLoad(uint32_t interface);      // Get the load of a interface
+    uint32_t CalculateInterfaceLoad(uint32_t interface);      // Get the load of a interface      conweave中不使用
     // Conga (lb_mode = 3)
     uint32_t DoLbConga(Ptr<Packet> p, CustomHeader &ch, const std::vector<int> &nexthops);
     // Conga (lb_mode = 6)

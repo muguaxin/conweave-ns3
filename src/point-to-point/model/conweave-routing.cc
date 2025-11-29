@@ -101,7 +101,7 @@ void ConWeaveDataTag::Print(std::ostream &os) const {
 }
 
 /**
- * @brief tag for reply/notify packet      用于 ToR 间 ACK-like 报文携带回复信息（INIT 或 TAIL）的标识
+ * @brief tag for reply/notify packet      
  */
 ConWeaveReplyTag::ConWeaveReplyTag() : Tag() {}
 TypeId ConWeaveReplyTag::GetTypeId(void) {
@@ -136,7 +136,7 @@ void ConWeaveReplyTag::Print(std::ostream &os) const {
 }
 
 /**
- * @brief tag for notify packet      用于在 RxToR 发现 ECN（拥塞）时通知发端 ToR 不要使用某条 path
+ * @brief tag for notify packet      
  */
 ConWeaveNotifyTag::ConWeaveNotifyTag() : Tag() {}
 TypeId ConWeaveNotifyTag::GetTypeId(void) {
@@ -184,18 +184,23 @@ ConWeaveRouting::ConWeaveRouting() {
     m_conweavePathTable.resize(65536);            // initialize table size
 }
 
+// 析构函数，用于清理资源
 ConWeaveRouting::~ConWeaveRouting() {}
+
+// 用于取消可能正在进行的定时事件
 void ConWeaveRouting::DoDispose() { m_agingEvent.Cancel(); }
+
+// 获取类的类型信息
 TypeId ConWeaveRouting::GetTypeId(void) {
     static TypeId tid =
         TypeId("ns3::ConWeaveRouting").SetParent<Object>().AddConstructor<ConWeaveRouting>();
     return tid;
 }
-
+// 从路径编码中获取指定跳数的输出端口
 uint32_t ConWeaveRouting::GetOutPortFromPath(const uint32_t &path, const uint32_t &hopCount) {
     return ((uint8_t *)&path)[hopCount];
 }
-
+// 将指定跳数的输出端口编码到路径中
 void ConWeaveRouting::SetOutPortToPath(uint32_t &path, const uint32_t &hopCount,
                                        const uint32_t &outPort) {
     ((uint8_t *)&path)[hopCount] = outPort;
@@ -215,6 +220,8 @@ uint64_t ConWeaveRouting::GetFlowKey(uint32_t ip1, uint32_t ip2, uint16_t port1,
     return ret;
 }
 
+
+// 实现一个哈希函数，将路径ID映射到m_ConWeaveRoutingTable中的索引，以便快速查找路径状态
 uint32_t ConWeaveRouting::DoHash(const uint8_t *key, size_t len, uint32_t seed) {
     uint32_t h = seed;
     if (len > 3) {
@@ -253,6 +260,8 @@ uint32_t ConWeaveRouting::DoHash(const uint8_t *key, size_t len, uint32_t seed) 
     return h;
 }
 
+
+// 在drsTOR收到带有INIT或TAIL标志的数据包后，调用此函数向srcTOR发生一个回复包。该回复包使用协议号0XFD，并携带conweavereplytag标签，通知srcTOR数据包已被接收。
 void ConWeaveRouting::SendReply(Ptr<Packet> p, CustomHeader &ch, uint32_t flagReply,
                                 uint32_t pkt_epoch) {
     qbbHeader seqh;
@@ -312,6 +321,8 @@ void ConWeaveRouting::SendReply(Ptr<Packet> p, CustomHeader &ch, uint32_t flagRe
     return;
 }
 
+
+// 在drsTOR收到带有ECN标志的数据包后，调用此函数向srcTOR发送一个通知包。该通知包使用协议号0XFD，并携带conweavenotifytag标签，通知srcTOR某条路径上发生了拥塞。
 void ConWeaveRouting::SendNotify(Ptr<Packet> p, CustomHeader &ch, uint32_t pathId) {
     qbbHeader seqh;
     seqh.SetSeq(0);
@@ -359,7 +370,20 @@ void ConWeaveRouting::SendNotify(Ptr<Packet> p, CustomHeader &ch, uint32_t pathI
     return;
 }
 
+
+
+
+
+
 /** MAIN: Every SLB packet is hijacked to this function at switches */
+/** 
+    *@brief  1.根据交换机类型和数据包内容，决定如何处理和转发数据包
+             2.实现conweave的路由逻辑，包括路径选择、拥塞控制和数据包重排序处理等
+             3.区分不同类型的数据包（数据携带包、INIT/TAIL请求回复、ECN通知），并执行相应的操作
+             4.维护CONWEAVE路径表(如m_conweavePathTable、m_conweaveRxtable、m_voqMap)，记录流的状态、路径信息
+    *@param  p  待处理的数据包指针
+             ch 数据包的自定义头信息，包含源/目的IP、端口等五元组信息
+*/
 void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
     // Packet arrival time
     Time now = Simulator::Now();
@@ -370,7 +394,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
         m_agingEvent = Simulator::Schedule(m_agingTime, &ConWeaveRouting::AgingEvent, this);
     }
 
-    // get srcToRId, dstToRId
+    // get srcToRId, dstToRId                                                                      获取源 ToR 和 目的 ToR 的交换机 ID
     assert(Settings::hostIp2SwitchId.find(ch.sip) !=
            Settings::hostIp2SwitchId.end());  // Misconfig of Settings::hostIp2SwitchId - sip
     assert(Settings::hostIp2SwitchId.find(ch.dip) !=
@@ -378,7 +402,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
     uint32_t srcToRId = Settings::hostIp2SwitchId[ch.sip];
     uint32_t dstToRId = Settings::hostIp2SwitchId[ch.dip];
 
-    /** FILTER: Quickly filter intra-pod traffic */
+    /** FILTER: Quickly filter intra-pod traffic */                                               // 仅处理跨 Pod 流量，Pod 内流量做普通 flow‑ECMP 转发
     if (srcToRId == dstToRId) {  // do normal routing (only one path)
         DoSwitchSendToDev(p, ch);
         return;
@@ -386,7 +410,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
     assert(srcToRId != dstToRId);  // Should not be in the same pod
     
 
-    // 只处理 UDP (0x11) 或 ConWeave 控制协议 0xFD；其他协议做普通 flow‑ECMP 转发。
+                                                                                                  // 只处理 UDP (0x11) 或 ConWeave 控制协议 0xFD；其他协议做普通 flow‑ECMP 转发。
     if (ch.l3Prot != 0x11 && ch.l3Prot != 0xFD) {
         SLB_LOG(PARSE_FIVE_TUPLE(ch) << "ACK/PFC or other control pkts -> do flow-ECMP. Sw("
                                      << m_switch_id << "),l3Prot:" << ch.l3Prot);
@@ -411,7 +435,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
         /** NOTE: ConWeave uses 0xFD protocol id for its control packets.
          * Quick filter purely (N)ACK packets (not ConWeave control packets)
          **/
-        if (!foundConWeaveReplyTag && !foundConWeaveNotifyTag) {  // pure-(N)ACK
+        if (!foundConWeaveReplyTag && !foundConWeaveNotifyTag) {  // pure-(N)ACK                     没有找到 ConWeaveReplyTag 和 ConWeaveNotifyTag，说明是纯ACK报文，记录日志并做普通 flow‑ECMP 转发
             if (m_switch_id == srcToRId) {
                 SLB_LOG(PARSE_FIVE_TUPLE(ch)
                         << "[TxToR/*PureACK] Sw(" << m_switch_id << "),ACK detected");
@@ -424,7 +448,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
             return;
         }
 
-        /** NOTE: ConWeave's control packets are forwarded with default flow-ECMP */
+        /** NOTE: ConWeave's control packets are forwarded with default flow-ECMP */                 //是conweave控制报文，但不是TOR交换机，使用默认的flow-ECMP转发
         if (!m_isToR) {
             SLB_LOG(PARSE_FIVE_TUPLE(ch) << "ConWeave Ctrl Pkts use flow-ECMP at non-ToR switches");
             DoSwitchSendToDev(p, ch);
@@ -447,11 +471,11 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
             assert(ch.l3Prot == 0x11);  // Only UDP (Data) - TxToR can see only UDP (DATA) packets
             assert(!foundConWeaveDataTag &&
                    !foundConWeaveReplyTag);  // ERROR - dataTag and replyTag
-                                             // should not be found at TxToR
+                                             // should not be found at TxToR                              确保没有找到 ConWeaveDataTag 和 ConWeaveReplyTag，因为源 ToR 只处理 UDP 数据包
 
             /** PIPELINE: emulating the p4 pipelining */
             conweaveTxMeta tx_md;  // SrcToR packet metadata
-            tx_md.pkt_flowkey = GetFlowKey(ch.sip, ch.dip, ch.udp.sport, ch.udp.dport);
+            tx_md.pkt_flowkey = GetFlowKey(ch.sip, ch.dip, ch.udp.sport, ch.udp.dport);                  //使用getFlowKey函数计算数据包的流键（flow key），并从m_conweaveTxTable中获取或创建对应的传输表项（txEntry）
             auto &txEntry = m_conweaveTxTable[tx_md.pkt_flowkey];
 
             /** INIT: initialize flowkey */
@@ -460,10 +484,10 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 tx_md.newConnection = true;
             }
             uint64_t baseRTT =
-                m_rxToRId2BaseRTT[dstToRId];  // get base RTT (used for setting REPLY timer)
+                m_rxToRId2BaseRTT[dstToRId];  // get base RTT (used for setting REPLY timer)             //获取源 ToR 到目的 ToR 的基本往返时间（base RTT），用于设置回复定时器
 
             /**
-             * CHECK: Expiry or Stability
+             * CHECK: Expiry or Stability                                                               根据txEntry.activetime和m_txExpiryTime判断流是否过期(flagExpired),根据txEntry.stabilized判断流是否稳定(flagStabilized)
              */
             if (txEntry._activeTime + m_txExpiryTime < now) { /* expired */
                 tx_md.flagExpired = true;
@@ -479,7 +503,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 assert(tx_md.flagExpired == true);
             }
 
-            /** ACTIVE: if expired or stabilized, reset timer. Otherwise, check timeout */
+            /** ACTIVE: if expired or stabilized, reset timer. Otherwise, check timeout */          //如果流过期或稳定，说明需要发送 INIT 请求，根据RTT设置新的回复截止时间txReplyTimer.如果回复超时，则需要发送 TAIL 请求，将回复截止时间设置为最大值
             if (tx_md.flagExpired ||
                 tx_md.flagStabilized) { /* expired or stabilized -> send INIT  */
                 txEntry._replyTimer =
@@ -499,7 +523,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
             }
 
             /**
-             * ROUND: if expiry or stabilized, increase epoch by 1
+             * ROUND: if expiry or stabilized, increase epoch by 1                                 根据流的状态更新epoch字段
              */
             if (tx_md.flagExpired || tx_md.flagStabilized) { /* expired or stabilized */
                 txEntry._epoch += 1;
@@ -509,7 +533,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
             }
 
             /**
-             * PHASE: expiry, stabilized, reply-timeout, or just get
+             * PHASE: expiry, stabilized, reply-timeout, or just get                             如果过期或者稳定将phase设为0即未重路由，如果回复超时将phase设为1即已经重路由，否则将phase设为当前值
              */
             if (tx_md.flagExpired || tx_md.flagStabilized) { /* expired or stabilized  */
                 txEntry._phase = 0;                          /* set phase to 0 */
@@ -523,7 +547,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
             }
 
             /**
-             * PATH: sample 2 ports and choose a good port
+             * PATH: sample 2 ports and choose a good port                                    从m_conWeaveRoutingTable中获取目的 ToR 的可用路径集合pathSet，根据m_pathAwareRerouting标志决定是进行路径感知选择(避开ECN标记的路径)还是随机选择路径，将选择的路径存储在tx_md.goodPath中
              */
             std::set<uint32_t> pathSet = m_ConWeaveRoutingTable[dstToRId];  // pathSet to RxToR
             uint32_t initPath =
@@ -531,7 +555,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                             rand() % pathSet.size()));  // to initialize (empty: CW_DEFAULT_32BIT)
 
             if (m_pathAwareRerouting) {
-                /* path-aware decision */   //若 m_pathAwareRerouting 启用，则检查 m_conweavePathTable（哈希索引）以避开 invalidTime 未过期的 path（ECN 标记）
+                /* path-aware decision */   
                 uint32_t randPath1 = *(std::next(pathSet.begin(), rand() % pathSet.size()));
                 uint32_t randPath2 = *(std::next(pathSet.begin(), rand() % pathSet.size()));
                 const auto pathEntry1 =
@@ -578,7 +602,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 assert(tx_md.newConnection == true);
                 txEntry._pathId = tx_md.goodPath;
             }
-            if (tx_md.flagExpired) { /* expired -> update path and use the new path */
+            if (tx_md.flagExpired) { /* expired -> update path and use the new path */                         //根据flagExpired使用新路径
                 if (tx_md.foundGoodPath) {
                     ConWeaveRouting::m_nReRoute += (tx_md.newConnection == false ? 1 : 0);
                     txEntry._pathId = tx_md.goodPath;
@@ -587,7 +611,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                             << txEntry._pathId << " #*#*#*#*#*#*#*#*#*#*#*#*");
                 }
                 tx_md.currPath = txEntry._pathId;
-            } else if (tx_md.flagReplyTimeout) {  /* reply-timeout -> update path but use the
+            } else if (tx_md.flagReplyTimeout) {  /* reply-timeout -> update path but use the                 //根据flagReplyTimeout回复超时使用旧路径，但更新路径以供后续数据包使用
                                                      previous path (TAIL pkt) */
                 tx_md.currPath = txEntry._pathId; /* TAIL uses current path. */
                 if (tx_md.foundGoodPath) {        /* next pkts will use the (changed) next path */
@@ -601,7 +625,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 tx_md.currPath = txEntry._pathId;
             }
 
-            /** TAILTIME: Memorize TAIL packet timestamp or get if phase=1 */
+            /** TAILTIME: Memorize TAIL packet timestamp or get if phase=1 */                              //处理TAIL时间戳,根据flagExpired、flagReplyTimeout和flagStabilized更新txEntry.tailTime
             if (tx_md.flagExpired) { /* expiry -> set zero */
                 txEntry._tailTime = NanoSeconds(0);
             } else if (tx_md.flagReplyTimeout) { /* reply-timeout -> set now */
@@ -612,7 +636,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
             tx_md.tailTime = txEntry._tailTime.GetNanoSeconds();
 
             /**
-             * SUMMARY: based on tx_md, update packet header
+             * SUMMARY: based on tx_md, update packet header                                            //将计算出的路径ID、epoch、phase、时间戳等信息封装到ConWeaveDataTag中，并将其添加到数据包中
              */
             conweaveDataTag.SetPathId(tx_md.currPath);
             conweaveDataTag.SetHopCount(0);
@@ -632,14 +656,14 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
             p->AddPacketTag(conweaveDataTag);
 
             uint32_t outDev =
-                GetOutPortFromPath(conweaveDataTag.GetPathId(), conweaveDataTag.GetHopCount());
+                GetOutPortFromPath(conweaveDataTag.GetPathId(), conweaveDataTag.GetHopCount());           
             uint32_t qIndex = ch.udp.pg;
             SLB_LOG(PARSE_FIVE_TUPLE(ch)
                     << "\t--> outDev:" << outDev << ",qIndex:" << qIndex
                     << ",pktEpoch:" << tx_md.epoch << ",pktPhase:" << tx_md.phase
                     << ",tailTime:" << tx_md.tailTime << ",pktPath:" << conweaveDataTag.GetPathId()
                     << ",flag:" << conweaveDataTag.GetFlagData() << " (2:INIT,3:TAIL)");
-            DoSwitchSend(p, ch, outDev, qIndex);
+            DoSwitchSend(p, ch, outDev, qIndex);                                                        //调用DoSwitchSend函数将数据包发送到指定的输出设备和队列
             return;
         }
         /***************************
@@ -666,7 +690,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 rxEntry._activeTime = now;
 
                 /**
-                 * PARSING: parse packet's conweaveDataTag    解析 ConWeaveDataTag 并用/更新 m_conweaveRxTable[flowkey]。
+                 * PARSING: parse packet's conweaveDataTag                                       解析 ConWeaveDataTag从中提取路径ID、epoch、phase、时间戳、标识位等信息到rx_md结构体中
                  */
                 rx_md.pkt_pathId = conweaveDataTag.GetPathId();
                 rx_md.pkt_epoch = conweaveDataTag.GetEpoch();
@@ -677,7 +701,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 rx_md.pkt_ecnbits = ch.GetIpv4EcnBits(); /* ECN bits */
 
                 /**
-                 * ROUND: check epoch: 2(prev), 0(current), or 1(new)
+                 * ROUND: check epoch: 2(prev), 0(current), or 1(new)                                检查epoch确定是当前epoch或新epoch再进行处理
                  */
                 if (rxEntry._epoch < rx_md.pkt_epoch) { /* new epoch */
                     rxEntry._epoch = rx_md.pkt_epoch;   /* update to new epoch  */
@@ -699,7 +723,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 /**
                  * PHASE: Phase0-Timestamp, Phase, Phase0-Cache
                  */
-                if (rx_md.pkt_phase == 0) { /* update phase0 timestamp */   //记录 phase0TxTime/phase0RxTime（用于估计 tail 到达时间）
+                if (rx_md.pkt_phase == 0) { /* update phase0 timestamp */                          //如果pkt_phase=0记录 phase0TxTime/phase0RxTime（用于估计 tail 到达时间）
                     rxEntry._phase0TxTime = NanoSeconds(rx_md.pkt_timestamp_Tx);
                     rxEntry._phase0RxTime = now;
                 }
@@ -707,7 +731,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 rx_md.phase0RxTime = rxEntry._phase0RxTime; /* get RxTime of phase 0 */
 
                 if (rx_md.resultEpochMatch == 1) { /* new epoch */
-                    // TAIL -> set phase=1. Otherwise, set phase 0.   根据 pkt_flagData（INIT/TAIL/DATA）与 phase 判断是否产生 out‑of‑order，并计算 timeExpectedToFlush。
+                    // TAIL -> set phase=1. Otherwise, set phase 0.                                        根据数据包是否为Tail包设置phase,并检查乱序
                     rxEntry._phase = (rx_md.pkt_flagData == ConWeaveDataTag::TAIL) ? 1 : 0; 
                     if (rx_md.pkt_phase > rxEntry._phase) { /* check out-of-order */
                         rx_md.flagOutOfOrder = true;
@@ -763,7 +787,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                     rx_md.flagPhase0Cache = rxEntry._phase0Cache;
                 }
 
-                /** TAIL: update or read TAIL TIMESTAMP*/
+                /** TAIL: update or read TAIL TIMESTAMP*/                                                  //根据数据包是否为TAIl包或phase1更新或读取rxEntry.tailTime                      
                 if (rx_md.pkt_flagData == ConWeaveDataTag::TAIL ||
                     rx_md.pkt_phase == 1) { /* update TAIL Time */
                     rxEntry._tailTime = NanoSeconds(rx_md.pkt_timestamp_TAIL);
@@ -774,7 +798,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
 
                 /** PREDICTION: PREDICTION OF TAIL_ARRIVAL_TIME
                  * 1) Tx Timegap
-                 * 2) Either <now + timegap (phase 0)>, or <tx_TAIL + timegap (phase 1)>
+                 * 2) Either <now + timegap (phase 0)>, or <tx_TAIL + timegap (phase 1)>                   //计算发送的时间差timegapAtTx并结合phase0/1的时间戳和m_extraVOQFlushTime,计算出预计的 VOQ刷新时间rx_md.timeExpectedToFlush
                  **/
                 if (rx_md.flagPhase0Cache) { /* phase0-timestamp is available */
                     rx_md.timegapAtTx = (rx_md.tailTime > rx_md.phase0TxTime.GetNanoSeconds())
@@ -841,7 +865,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 /**
                  * RESCHEDULE: reschedule of VOQ flush time
                  */
-                if (rx_md.pkt_phase == 0) {    /* phase 0 -> update if currently reordering */
+                if (rx_md.pkt_phase == 0) {    /* phase 0 -> update if currently reordering */                     //如果是phase0且乱序（rx_Entry._reordering），则更新VOQ的刷新时间
                     if (rxEntry._reordering) { /* reordering */
                         if (rx_md.pkt_flagData == ConWeaveDataTag::TAIL) {
                             ConWeaveRouting::m_nFlushVOQByTail += 1; /* debugging */
@@ -865,8 +889,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                                 << ",Phase0 Rx:" << rx_md.phase0RxTime << ")");
                     }
                 } else {                          /* phase 1 */
-                    if (rx_md.flagOutOfOrder) {   /* out-of-order */  //若 out‑of‑order -> 创建或更新 ConWeaveVOQ（存在于 m_voqMap 中）并将包 enqueue；VOQ 在到期或由 TAIL 触发时 flush，并通过 CallbackByVOQFlush 回调更新 rxEntry 状态。
-                        rx_md.flagEnqueue = true; /* enqueue */
+                    if (rx_md.flagOutOfOrder) {   /* out-of-order */                                             //如果是phase1且乱序（flagOutOfOrder），如果是第一次乱序（！rxEntry._reordering）则创建新的conweveVOQ对象m_voqMap[rx_md.pkt_flowkey]并设置刷新时间，回调函数（deleteVOQ，callbackbyVOQflush）
 
                         if (rxEntry._reordering) { /* reordering is on-going */
                             auto voq = m_voqMap.find(rx_md.pkt_flowkey);
@@ -906,7 +929,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 }
 
                 /**
-                 * NOTIFY: Generate NOTIFY packet if ECN marked  若 ECN bits == 0x03 -> SendNotify(p,ch,pathId) 给 SrcToR（用于 path pause）
+                 * NOTIFY: Generate NOTIFY packet if ECN marked                                            若m_pathAwareRerouting=true且pkt_ecnbits==0x03 -> 发 SendNotify 给 SrcToR
                  */
                 if (m_pathAwareRerouting) {
                     if (rx_md.pkt_ecnbits == 0x03) {
@@ -915,7 +938,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 }
 
                 /**
-                 * REPLY: send reply if requested  若 pkt_flagData==INIT/TAIL -> 发 SendReply 给 SrcToR
+                 * REPLY: send reply if requested                                                         若rx_md.pkt_flagData==INIT/TAIL -> 发 SendReply 给 SrcToR
                  */
                 if (rx_md.pkt_flagData == ConWeaveDataTag::INIT) {
                     assert(rx_md.pkt_phase == 0);  // sanity check
@@ -928,7 +951,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 }
 
                 /**
-                 * ENQUEUE: enqueue the packet
+                 * ENQUEUE: enqueue the packet                                                             
                  */
                 if (rx_md.flagEnqueue) {
                     m_voqMap[rx_md.pkt_flowkey].Enqueue(p);
@@ -943,19 +966,19 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 return;
             }
 
-            if (foundConWeaveReplyTag) {  // Received REPLY
+            if (foundConWeaveReplyTag) {  // Received REPLY                                                  //处理 ConWeaveReplyTag 回复包，获取flowkey、flagreply、epoch、phase等信息
                 conweaveTxMeta tx_md;
                 tx_md.pkt_flowkey = GetFlowKey(ch.dip, ch.sip, ch.udp.dport, ch.udp.sport);
                 tx_md.reply_flag = conweaveReplyTag.GetFlagReply();
                 tx_md.reply_epoch = conweaveReplyTag.GetEpoch();
                 tx_md.reply_phase = conweaveReplyTag.GetPhase();
-                auto &txEntry = m_conweaveTxTable[tx_md.pkt_flowkey];
+                auto &txEntry = m_conweaveTxTable[tx_md.pkt_flowkey];                                       //从m_conweaveTxTable中获取对应的传输表项（txEntry）
 
                 /**
                  * CHECK: Reply timeout check only when epoch&phase are matched
                  */
                 if (tx_md.reply_epoch == txEntry._epoch && tx_md.reply_phase == txEntry._phase) {
-                    if (tx_md.reply_flag == ConWeaveReplyTag::INIT) { /* reply of INIT */
+                    if (tx_md.reply_flag == ConWeaveReplyTag::INIT) { /* reply of INIT */                    //如果是INIT回复且再截止时间之前到达，则将流标记为稳定，并将回复截止时间设置为最大值
                         if (now < txEntry._replyTimer &&
                             txEntry._replyTimer != CW_MAX_TIME) { /* if replied timely */
                             txEntry._stabilized = true;           /* stabilized */
@@ -973,7 +996,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                             /* do nothing */
                         }
                     }
-                    if (tx_md.reply_flag == ConWeaveReplyTag::TAIL) { /* reply of TAIL */
+                    if (tx_md.reply_flag == ConWeaveReplyTag::TAIL) { /* reply of TAIL */                    //如果是TAIL回复且在截止时间之前到达，则将流标记为稳定，并将回复截止时间设置为最大值
                         txEntry._stabilized =
                             true;  // out-of-order issue is resolved for this "flowcut"
                         txEntry._replyTimer = CW_MAX_TIME; /* no more timeout */
@@ -990,7 +1013,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
                 return;  // drop this reply
             }
 
-            if (m_pathAwareRerouting) {        // Received NOTIFY
+            if (m_pathAwareRerouting) {        // Received NOTIFY                                          //处理 ConWeaveNotifyTag 通知包,获取被标记ECN的路径ID，计算该路径在m_conweavePathTable中的索引，并更新对应的路径表项的无效时间为当前时间加上m_pathPauseTime
                 if (foundConWeaveNotifyTag) {  // Received NOTIFY (from ECN)
                     conweaveTxMeta tx_md;
                     auto congestedPathId = conweaveNotifyTag.GetPathId();
@@ -1033,7 +1056,7 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
     /******************************
      *  Non-ToR Switch (Core/Agg) *
      ******************************/
-    if (foundConWeaveDataTag) {  // UDP with PathId   如果包有 ConWeaveDataTag：增加 hopCount，重新序列化 tag，用 path 指定的 outDev（通过 GetOutPortFromPath）转发（DoSwitchSend）。
+    if (foundConWeaveDataTag) {  // UDP with PathId                                                     如果包有 ConWeaveDataTag：增加 hopCount，重新序列化 tag，用 path 指定的 outDev（通过 GetOutPortFromPath）转发（DoSwitchSend）。
         // update hopCount
         uint32_t hopCount = conweaveDataTag.GetHopCount() + 1;
         conweaveDataTag.SetHopCount(hopCount);
@@ -1057,12 +1080,16 @@ void ConWeaveRouting::RouteInput(Ptr<Packet> p, CustomHeader &ch) {
         return;
     }
 
-    // UDP with ECMP
+    // UDP with ECMP                                                                                   没有则直接用 ECMP 转发（DoSwitchSendToDev）。
     SLB_LOG("[NonToR/ECMP] Sw(" << m_switch_id << ")," << PARSE_FIVE_TUPLE(ch));
     DoSwitchSendToDev(p, ch);
     return;
 }
 
+
+
+
+// 运行在运行时设置或修改类内部使用的常量参数
 void ConWeaveRouting::SetConstants(Time extraReplyDeadline, Time extraVOQFlushTime,
                                    Time txExpiryTime, Time defaultVOQWaitingTime,
                                    Time pathPauseTime, bool pathAwareRerouting) {
@@ -1076,16 +1103,21 @@ void ConWeaveRouting::SetConstants(Time extraReplyDeadline, Time extraVOQFlushTi
     assert(m_pathAwareRerouting);  // by default, path-aware routing
 }
 
+
+// 设置交换机的基本信息，包括是否是ToR交换机以及交换机的ID
 void ConWeaveRouting::SetSwitchInfo(bool isToR, uint32_t switch_id) {
     m_isToR = isToR;
     m_switch_id = switch_id;
 }
 
+
 /** CALLBACK: callback functions  */
+// 包装函数，用于调用预先设置的回调函数(setswitchcallback)将数据包发送到指定的输出设备和队列
 void ConWeaveRouting::DoSwitchSend(Ptr<Packet> p, CustomHeader &ch, uint32_t outDev,
                                    uint32_t qIndex) {
     m_switchSendCallback(p, ch, outDev, qIndex);
 }
+// 与上面类似
 void ConWeaveRouting::DoSwitchSendToDev(Ptr<Packet> p, CustomHeader &ch) {
     m_switchSendToDevCallback(p, ch);
 }
@@ -1093,6 +1125,8 @@ void ConWeaveRouting::DoSwitchSendToDev(Ptr<Packet> p, CustomHeader &ch) {
 // used for callback in VOQ
 void ConWeaveRouting::DeleteVOQ(uint64_t flowkey) { m_voqMap.erase(flowkey); }
 
+
+// 作为conweavevoq的回调函数，在VOQ刷新时被调用以通知conweaverouting更新m_conweaverxtable中的接收条目对应流的状态
 void ConWeaveRouting::CallbackByVOQFlush(uint64_t flowkey, uint32_t voqSize) {
     SLB_LOG(
         "#################################################################### VOQ FLush, flowkey: "
@@ -1116,6 +1150,8 @@ void ConWeaveRouting::SetSwitchSendToDevCallback(SwitchSendToDevCallback switchS
     m_switchSendToDevCallback = switchSendToDevCallback;
 }
 
+
+// 遍历m_voqMap，计算并返回所有VOQ中的数据包总数
 uint32_t ConWeaveRouting::GetVolumeVOQ() {
     uint32_t nTotalPkts = 0;
     for (auto voq : m_voqMap) {
@@ -1124,6 +1160,9 @@ uint32_t ConWeaveRouting::GetVolumeVOQ() {
     return nTotalPkts;
 }
 
+
+
+// 定期检查并删除m_conweaveTxTable和m_conweaveRxTable中已过期的条目
 void ConWeaveRouting::AgingEvent() {
     auto now = Simulator::Now();
 

@@ -279,7 +279,7 @@ int SwitchNode::GetOutDev(Ptr<Packet> p, CustomHeader &ch) {
 }
 
 /*
- * The (possible) callback point when conweave dequeues packets from buffer
+ * The (possible) callback point when conweave dequeues packets from buffer         //qIndex表示优先级
  */
 void SwitchNode::DoSwitchSend(Ptr<Packet> p, CustomHeader &ch, uint32_t outDev, uint32_t qIndex) {
     // admission control

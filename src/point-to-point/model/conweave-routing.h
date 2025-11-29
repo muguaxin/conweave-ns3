@@ -69,9 +69,9 @@ namespace ns3 {
  *
  * (4) "Stabilized" means no on-going packet reordering, so can start new rerouting
  *
- * (5) Reply + tag(INIT) = RTT_REPLY, Reply + tag(TAIL) = CLEAR in paper
+ * (5) Reply + tag(INIT) = RTT_REPLY, Reply + tag(TAIL) = CLEAR in paper    接收方
  *
- * (6) Data + tag(INIT) = RTT_REQUEST, Data + tag(TAIL) = TAIL in paper
+ * (6) Data + tag(INIT) = RTT_REQUEST, Data + tag(TAIL) = TAIL in paper     传输方
  *
  * ************************************************************************************************
  */
@@ -333,7 +333,7 @@ class ConWeaveRouting : public Object {
 
     /* topological info (should be initialized in the beginning) */
     std::map<uint32_t, std::set<uint32_t> >
-        m_ConWeaveRoutingTable;                      // <RxToRId -> set<pathId> > just for reference
+        m_ConWeaveRoutingTable;                      // <RxToRId -> set<pathId> > just for reference   map存储的为键值对，键为RxToRId，值为set集合，集合中存储的是pathId
     std::map<uint32_t, uint64_t> m_rxToRId2BaseRTT;  // RxToRId -> BaseRTT between TORs(fixed)
     std::vector<conweavePathInfo> m_conweavePathTable;  // pathInfo table
 

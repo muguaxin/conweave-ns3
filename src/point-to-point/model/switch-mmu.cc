@@ -34,7 +34,7 @@ TypeId SwitchMmu::GetTypeId(void) {
                           MakeBooleanChecker())
             .AddAttribute(
                 "MaxTotalBufferPerPort",
-                "Maximum buffer size of MMU per port in bytes (12-port switch: 12 * 375kB = 4.5MB)",
+                "Maximum buffer size of MMU per port in bytes (12-port switch: 12 * 375kB = 4.5MB)",       //每个交换机12个端口，每个端口的最大缓冲区大小为375kB，总共4.5MB
                 UintegerValue(375 * 1000),
                 MakeUintegerAccessor(&SwitchMmu::SetMaxBufferBytesPerPort,
                                      &SwitchMmu::GetMaxBufferBytesPerPort),

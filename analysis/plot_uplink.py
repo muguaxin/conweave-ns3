@@ -67,10 +67,11 @@ H = [
     'xxx',
 ]
 
-
+# 接受data_arr数组，进行排序后计算每个值对应的cdf累计概率（CDF为小于某个值的概率）
 def getCdfFromArray(data_arr):
-    v_sorted = np.sort(data_arr)
-    p = 1. * np.arange(len(data_arr)) / (len(data_arr) - 1)
+    # 先将数据从小到大排序，然后对于每个数据xi计算其在所有数据中的排名p = i/(n-1)，其中i为xi在排序后数组中的索引，n为数据总数
+    v_sorted = np.sort(data_arr)     
+    p = 1. * np.arange(len(data_arr)) / (len(data_arr) - 1)   
 
     od = []
     bkt = [0,0,0,0]
@@ -279,7 +280,8 @@ def main():
                             for vec in v_t:
                                 if np.average(vec) == 0:
                                     continue
-                                val = (np.max(vec) - np.min(vec)) / np.average(vec) * 100
+                                # 最大吞吐量减最小吞吐量除评价吞吐量
+                                val = (np.max(vec) - np.min(vec)) / np.average(vec) * 100    
                                 ts_data_arr.append(val)
 
                         cdf_ts_data_arr = getCdfFromArray(ts_data_arr)
